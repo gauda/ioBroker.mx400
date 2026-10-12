@@ -1,0 +1,23 @@
+{
+	"Gateway host or IP": "Gateway Host oder IP",
+	"Use mDNS": "mDNS verwenden",
+	"API Port": "API Port",
+	"Auth Port": "Auth Port",
+	"Login (from gateway label)": "Login (vom Gateway-Etikett)",
+	"Password (from gateway label)": "Passwort (vom Gateway-Etikett)",
+	"Access Token (pre-generated)": "Zugriffstoken (vorgegeneriert)",
+	"Connection": "Verbindung",
+	"Data": "Daten",
+	"Paths to poll": "Abzufragende Pfade",
+	"Signals to poll": "Abzufragende Signale",
+	"Energy monitoring": "Energieüberwachung",
+	"Documentation (OpenAPI)": "Dokumentation (OpenAPI)",
+	"Polling interval (s)": "Abfrageintervall (s)",
+	"Signals polling interval (s)": "Signal-Abfrageintervall (s)",
+	"Energy interval (s)": "Energie-Abfrageintervall (s)",
+	"Enable energy monitoring": "Energieüberwachung aktivieren",
+	"Signals filter (regular expression)": "Signalfilter (regulärer Ausdruck)",
+	"Request timeout (ms)": "Anfrage-Timeout (ms)",
+	"Test connection": "Verbindung testen",
+	"Accept self-signed gateway certificates": "Selbstsignierte Gateway-Zertifikate akzeptieren"
+}

@@ -1,0 +1,132 @@
+{
+	"i18n": false,
+	"type": "tabs",
+	"items": {
+		"connection": {
+			"type": "panel",
+			"label": "Connection",
+			"items": {
+				"host": {
+					"type": "text",
+					"label": "Gateway host or IP",
+					"help": "e.g. mx400.local or 192.168.1.100"
+				},
+				"useMdns": {
+					"type": "checkbox",
+					"label": "Use mDNS",
+					"help": "Discover the gateway on the local network via mDNS (_hvac-open-api._tcp). When enabled, the adapter finds the current gateway address automatically at startup, so the host does not have to be updated when the IP changes."
+				},
+				"port": {
+					"type": "number",
+					"label": "API Port",
+					"default": 9443
+				},
+				"authPort": {
+					"type": "number",
+					"label": "Auth Port",
+					"default": 9442
+				},
+				"acceptSelfSigned": {
+					"type": "checkbox",
+					"label": "Accept self-signed gateway certificates",
+					"default": true,
+					"help": "Accept the gateway's own (self-signed) HTTPS certificate, as used by the MX400. Disable if you want strict certificate verification."
+				},
+				"login": {
+					"type": "text",
+					"label": "Login (from gateway label)"
+				},
+				"password": {
+					"type": "password",
+					"label": "Password (from gateway label)"
+				},
+				"accessToken": {
+					"type": "password",
+					"label": "Access Token (pre-generated)",
+					"help": "Alternatively provide a pre-generated access token from the gateway"
+				},
+				"requestTimeout": {
+					"type": "number",
+					"label": "Request timeout (ms)",
+					"default": 15000,
+					"help": "Per-request timeout. Increase if the gateway is slow to answer."
+				},
+				"testConnection": {
+					"type": "sendTo",
+					"command": "testConnection",
+					"label": "Test connection",
+					"variant": "contained",
+					"icon": "auth",
+					"showProcess": true,
+					"useNative": true,
+					"timeout": 30000,
+					"jsonData": "{\"host\":\"${data.host}\",\"port\":\"${data.port}\",\"authPort\":\"${data.authPort}\",\"useMdns\":\"${data.useMdns}\",\"acceptSelfSigned\":\"${data.acceptSelfSigned}\",\"login\":\"${data.login}\",\"password\":\"${data.password}\",\"accessToken\":\"${data.accessToken}\",\"requestTimeout\":\"${data.requestTimeout}\"}"
+				}
+			}
+		},
+		"data": {
+			"type": "panel",
+			"label": "Data",
+			"items": {
+				"pathsHeader": {
+					"type": "header",
+					"text": "Paths to poll",
+					"size": 4
+				},
+				"corePaths": {
+					"type": "text",
+					"label": "Paths to poll",
+					"minRows": 10,
+					"help": "One path per line. The state id is derived automatically: the first path segment becomes the channel, all following segments are flattened with underscores, e.g. /system/sensors/temperatures/outdoor_t1 → system.sensors_temperatures_outdoor_t1. Lines starting with # are ignored."
+				},
+				"pollInterval": {
+					"type": "number",
+					"label": "Polling interval (s)",
+					"default": 60,
+					"min": 1,
+					"help": "How often the core values are read (default 60 s)"
+				},
+				"pathsDocs": {
+					"type": "staticLink",
+					"label": "Documentation (OpenAPI)",
+					"href": "https://editor.swagger.io/?url=https://raw.githubusercontent.com/bosch-home-comfort/api-docs/refs/heads/main/openapi/k-40-rf.yaml"
+				},
+				"signalsHeader": {
+					"type": "header",
+					"text": "Signals to poll",
+					"size": 4
+				},
+				"signalsFilter": {
+					"type": "text",
+					"label": "Signals filter (regular expression)",
+					"help": "Required to read signals. Empty means no signals are polled. Use \".*\" to read all, or e.g. ^/signals/(SC|HC1) to narrow it down."
+				},
+				"signalsInterval": {
+					"type": "number",
+					"label": "Signals polling interval (s)",
+					"default": 300,
+					"min": 1,
+					"help": "Slower interval for the appliance signals, e.g. 300 s = 5 minutes"
+				},
+				"energyHeader": {
+					"type": "header",
+					"text": "Energy monitoring",
+					"size": 4
+				},
+				"enableEnergy": {
+					"type": "checkbox",
+					"label": "Enable energy monitoring",
+					"default": true,
+					"help": "Read cumulative energy and today/this-month consumption/production from the gateway (heat pump, electric heater and totals). Disable if your gateway does not provide the emon endpoints."
+				},
+				"energyInterval": {
+					"type": "number",
+					"label": "Energy interval (s)",
+					"default": 3600,
+					"min": 60,
+					"help": "How often the energy values are read (default 3600 s = 1 hour). Energy requests are heavier, so a slow cadence is recommended."
+				}
+			}
+		}
+	}
+}

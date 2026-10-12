@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="96" ry="96" fill="#1a73e8"/>
+  <circle cx="256" cy="180" r="60" fill="white"/>
+  <rect x="196" y="240" width="120" height="140" rx="20" fill="white"/>
+  <rect x="216" y="280" width="80" height="20" rx="10" fill="#1a73e8"/>
+  <rect x="216" y="320" width="80" height="20" rx="10" fill="#1a73e8"/>
+  <text x="256" y="440" font-family="Arial, sans-serif" font-size="60" font-weight="bold" fill="white" text-anchor="middle">MX400</text>
+</svg>

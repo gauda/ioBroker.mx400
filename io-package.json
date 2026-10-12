@@ -1,0 +1,128 @@
+{
+	"common": {
+		"name": "mx400",
+		"version": "0.0.1",
+		"news": {
+			"0.0.1": {
+				"en": "initial release",
+				"de": "Erstveröffentlichung",
+				"ru": "Первый выпуск",
+				"pt": "lançamento inicial",
+				"nl": "Eerste uitgave",
+				"fr": "Première version",
+				"it": "Versione iniziale",
+				"es": "Versión inicial",
+				"pl": "Pierwsze wydanie",
+				"uk": "Початкова версія",
+				"zh-cn": "首次出版"
+			}
+		},
+		"title": "Buderus MX400 / K40 RF",
+		"titleLang": {
+			"en": "Buderus MX400 / K40 RF",
+			"de": "Buderus MX400 / K40 RF",
+			"ru": "Buderus MX400 / K40 RF",
+			"pt": "Buderus MX400 / K40 RF",
+			"nl": "Buderus MX400 / K40 RF",
+			"fr": "Buderus MX400 / K40 RF",
+			"it": "Buderus MX400 / K40 RF",
+			"es": "Buderus MX400 / K40 RF",
+			"pl": "Buderus MX400 / K40 RF",
+			"uk": "Buderus MX400 / K40 RF",
+			"zh-cn": "Buderus MX400 / K40 RF"
+		},
+		"desc": {
+			"en": "ioBroker adapter for Buderus MX400 (K40 RF gateway) to control and monitor heating system",
+			"de": "ioBroker-Adapter für Buderus MX400 (K40 RF Gateway) zur Steuerung und Überwachung des Heizsystems",
+			"ru": "Адаптер ioBroker для Buderus MX400 (шлюз K40 RF) для управления и мониторинга системы отопления",
+			"pt": "Adaptador ioBroker para Buderus MX400 (gateway K40 RF) para controlar e monitorar o sistema de aquecimento",
+			"nl": "ioBroker-adapter voor Buderus MX400 (K40 RF-gateway) om verwarmingssysteem te bedienen en te monitoren",
+			"fr": "Adaptateur ioBroker pour Buderus MX400 (passerelle K40 RF) pour contrôler et surveiller le système de chauffage",
+			"it": "Adattatore ioBroker per Buderus MX400 (gateway K40 RF) per controllare e monitorare il sistema di riscaldamento",
+			"es": "Adaptador ioBroker para Buderus MX400 (puerta de enlace K40 RF) para controlar y supervisar el sistema de calefacción",
+			"pl": "Adapter ioBroker dla Buderus MX400 (bramka K40 RF) do sterowania i monitorowania systemu grzewczego",
+			"uk": "Адаптер ioBroker для Buderus MX400 (шлюз K40 RF) для керування та моніторингу системи опалення",
+			"zh-cn": "用于 Buderus MX400（K40 RF 网关）的 ioBroker 适配器，用于控制和监控供暖系统"
+		},
+		"authors": [
+			"gauda <info@gauda.de>"
+		],
+		"keywords": [
+			"mx400",
+			"k40",
+			"buderus",
+			"bosch",
+			"heating",
+			"heat pump"
+		],
+		"license": "MIT",
+		"platform": "Javascript/Node.js",
+		"main": "build/main.js",
+		"icon": "mx400.png",
+		"enabled": true,
+		"extIcon": "https://raw.githubusercontent.com/gauda/ioBroker.mx400/main/admin/mx400.png",
+		"readme": "https://github.com/gauda/ioBroker.mx400/blob/main/README.md",
+		"loglevel": "info",
+		"mode": "daemon",
+		"type": "hardware",
+		"compact": true,
+		"messagebox": true,
+		"connectionType": "local",
+		"dataSource": "poll",
+		"tier": 3,
+		"adminUI": {
+			"config": "json"
+		},
+		"dependencies": [
+			{
+				"js-controller": ">=5.0.19"
+			}
+		],
+		"globalDependencies": [
+			{
+				"admin": ">=6.0.0"
+			}
+		]
+	},
+	"native": {
+		"host": "",
+		"port": 9443,
+		"authPort": 9442,
+		"useMdns": false,
+		"login": "",
+		"password": "",
+		"accessToken": "",
+		"corePaths": "/system/sensors/temperatures/outdoor_t1\n/heatSources/actualSupplyTemperature\n/heatSources/actualModulation\n/heatSources/currentSupplySetpoint\n/heatSources/returnTemperature\n/heatSources/flameStatus\n/heatSources/compressor/powerElecActual\n/heatSources/Source/eHeater/status\n/heatingCircuits/hc1/overallStatus\n/heatingCircuits/hc1/currentRoomSetpoint",
+		"pollInterval": 60,
+		"signalsInterval": 300,
+		"signalsFilter": "",
+		"requestTimeout": 15000,
+		"acceptSelfSigned": true,
+		"enableEnergy": true,
+		"energyInterval": 3600
+	},
+	"objects": [],
+	"instanceObjects": [
+		{
+			"_id": "info",
+			"type": "channel",
+			"common": {
+				"name": "Information"
+			},
+			"native": {}
+		},
+		{
+			"_id": "info.connection",
+			"type": "state",
+			"common": {
+				"role": "indicator.connected",
+				"name": "Device or service connected",
+				"type": "boolean",
+				"read": true,
+				"write": false,
+				"def": false
+			},
+			"native": {}
+		}
+	]
+}

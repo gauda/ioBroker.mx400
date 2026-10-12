@@ -1,0 +1,23 @@
+{
+	"Gateway host or IP": "Gateway host or IP",
+	"Use mDNS": "Use mDNS",
+	"API Port": "API Port",
+	"Auth Port": "Auth Port",
+	"Login (from gateway label)": "Login (from gateway label)",
+	"Password (from gateway label)": "Password (from gateway label)",
+	"Access Token (pre-generated)": "Access Token (pre-generated)",
+	"Connection": "Connection",
+	"Data": "Data",
+	"Paths to poll": "Paths to poll",
+	"Signals to poll": "Signals to poll",
+	"Energy monitoring": "Energy monitoring",
+	"Documentation (OpenAPI)": "Documentation (OpenAPI)",
+	"Polling interval (s)": "Polling interval (s)",
+	"Signals polling interval (s)": "Signals polling interval (s)",
+	"Energy interval (s)": "Energy interval (s)",
+	"Enable energy monitoring": "Enable energy monitoring",
+	"Signals filter (regular expression)": "Signals filter (regular expression)",
+	"Request timeout (ms)": "Request timeout (ms)",
+	"Test connection": "Test connection",
+	"Accept self-signed gateway certificates": "Accept self-signed gateway certificates"
+}
