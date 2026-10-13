@@ -1,31 +1,25 @@
 import * as utils from '@iobroker/adapter-core';
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import { Agent } from 'https';
-import { STATUS_CODES } from 'http';
 import makeMdns from 'multicast-dns';
+import {
+	deriveStateId,
+	describeHttpError,
+	energyDifference,
+	extractRecordingPeriods,
+	formatLocalDate,
+	getRoleForPath,
+	getTypeForValue,
+	parseCorePaths,
+	parseEmonValues,
+	sanitizeSignalId,
+	toBool,
+} from './lib/pure';
 
 /** mDNS service advertised by the K40 RF gateway (see the official API guide). */
 const MDNS_SERVICE = '_hvac-open-api._tcp.local';
 /** How long to wait for an mDNS answer before giving up. */
 const MDNS_TIMEOUT_MS = 4000;
-
-interface Mx400Config {
-	host: string;
-	port: number;
-	authPort: number;
-	useMdns: boolean;
-	login: string;
-	password: string;
-	accessToken: string;
-	pollInterval: number;
-	signalsInterval: number;
-	signalsFilter: string;
-	requestTimeout: number;
-	acceptSelfSigned: boolean;
-	corePaths: string;
-	enableEnergy: boolean;
-	energyInterval: number;
-}
 
 /** A curated resource from the core (fast) poll. */
 interface CoreResource {
@@ -122,47 +116,6 @@ class Mx400Adapter extends utils.Adapter {
 	 */
 	private coreResources: CoreResource[] = [];
 
-	/** Parse the user-edited core path list: one path per line, "#" marks comments. */
-	private parseCorePaths(raw: string): string[] {
-		const paths: string[] = [];
-		for (const rawLine of String(raw || '').split('\n')) {
-			const line = rawLine.trim();
-			if (!line || line.startsWith('#')) {
-				continue;
-			}
-			const parts = line.split(/\s+/).filter(Boolean);
-			if (parts.length > 1) {
-				this.log.warn(
-					`Ignoring extra text on core path line "${line}" - state ids are derived from the path automatically.`,
-				);
-			}
-			const path = parts[0];
-			if (path) {
-				// Normalize: API paths always start with a slash
-				paths.push(path.startsWith('/') ? path : `/${path}`);
-			}
-		}
-		return paths;
-	}
-
-	/**
-	 * Derive a state id from a path: the first path segment becomes the
-	 * channel, all following segments are flattened with "_". E.g.
-	 * /system/sensors/temperatures/outdoor_t1 -> system.sensors_temperatures_outdoor_t1
-	 */
-	private deriveStateId(path: string): string {
-		const segments = path
-			.replace(/^\/+/, '')
-			.split('/')
-			.filter(Boolean)
-			.map(s => s.replace(/[^A-Za-z0-9_]/g, '_'));
-		if (!segments.length) {
-			return 'custom.unknown';
-		}
-		const [channel, ...leaf] = segments;
-		return leaf.length ? `${channel}.${leaf.join('_')}` : channel;
-	}
-
 	public constructor(options: Partial<utils.AdapterOptions> = {}) {
 		super({
 			...options,
@@ -174,9 +127,6 @@ class Mx400Adapter extends utils.Adapter {
 	}
 
 	private async onReady(): Promise<void> {
-		// Load configuration
-		this.config = this.config as unknown as Mx400Config;
-
 		// Core path list is user-editable in the adapter settings. For existing
 		// instances the new "corePaths" native field may not be saved yet - in
 		// that case fall back to the built-in default list.
@@ -184,8 +134,8 @@ class Mx400Adapter extends utils.Adapter {
 		const corePaths =
 			rawCorePaths === undefined || rawCorePaths === null
 				? DEFAULT_CORE_PATHS
-				: this.parseCorePaths(rawCorePaths);
-		this.coreResources = corePaths.map(path => ({ path, stateId: this.deriveStateId(path) }));
+				: parseCorePaths(rawCorePaths, message => this.log.warn(message));
+		this.coreResources = corePaths.map(path => ({ path, stateId: deriveStateId(path) }));
 		if (!this.coreResources.length) {
 			this.log.warn('No core paths configured - only notifications will be polled.');
 		}
@@ -219,7 +169,7 @@ class Mx400Adapter extends utils.Adapter {
 			}
 
 			// Set token for API client
-			this.httpApi.defaults.headers.common['Authorization'] = `Bearer ${this.token}`;
+			this.httpApi.defaults.headers.common.Authorization = `Bearer ${this.token}`;
 
 			// Static identity data - poll once at startup
 			const reachable = await this.pollStatics();
@@ -228,8 +178,8 @@ class Mx400Adapter extends utils.Adapter {
 
 			// Start polling
 			this.startPolling();
-		} catch (error) {
-			this.log.error(`Failed to initialize: ${error}`);
+		} catch (error: any) {
+			this.log.error(`Failed to initialize: ${error?.message || error}`);
 			await this.setStateAsync('info.connection', false, true);
 		}
 	}
@@ -292,6 +242,8 @@ class Mx400Adapter extends utils.Adapter {
 	 * Discover the K40 RF gateway through the mDNS service _hvac-open-api._tcp.
 	 * Prefers the resolved IPv4 address (so no OS-level mDNS resolution is
 	 * needed) and falls back to the SRV target hostname.
+	 *
+	 * @param timeoutMs How long to wait for an mDNS response, in milliseconds
 	 */
 	private discoverGateway(timeoutMs = MDNS_TIMEOUT_MS): Promise<DiscoveredGateway | null> {
 		return new Promise(resolve => {
@@ -305,6 +257,9 @@ class Mx400Adapter extends utils.Adapter {
 			let port: number | undefined;
 			let queriedSrv = false;
 			let queriedA = false;
+			// Assigned once the mDNS query is sent, but declared here so the
+			// callbacks registered below can clear the pending timeout.
+			// eslint-disable-next-line prefer-const
 			let timer: NodeJS.Timeout | undefined;
 
 			let mdns: makeMdns.MulticastDNS;
@@ -386,7 +341,11 @@ class Mx400Adapter extends utils.Adapter {
 		});
 	}
 
-	/** Handle sendTo() requests from the admin UI. */
+	/**
+	 * Handle sendTo() requests from the admin UI.
+	 *
+	 * @param obj The message sent by the admin UI
+	 */
 	private async onMessage(obj: ioBroker.Message): Promise<void> {
 		if (!obj || !obj.command) {
 			return;
@@ -408,10 +367,12 @@ class Mx400Adapter extends utils.Adapter {
 	 * Test the connection with the (possibly unsaved) values from the admin
 	 * form. Returns either { result } on success - optionally with a discovered
 	 * host to store - or { error } on failure.
+	 *
+	 * @param request The (possibly unsaved) connection settings from the admin form
 	 */
 	private async testConnection(request: TestConnectionRequest): Promise<Record<string, any>> {
-		const useMdns = Mx400Adapter.toBool(request.useMdns, false);
-		const acceptSelfSigned = Mx400Adapter.toBool(request.acceptSelfSigned, true);
+		const useMdns = toBool(request.useMdns, false);
+		const acceptSelfSigned = toBool(request.acceptSelfSigned, true);
 		const rejectUnauthorized = !acceptSelfSigned;
 		const authPort = Number(request.authPort) || 9442;
 		const apiPort = Number(request.port) || 9443;
@@ -431,9 +392,7 @@ class Mx400Adapter extends utils.Adapter {
 		}
 		if (!host) {
 			return {
-				error: useMdns
-					? 'No gateway found via mDNS and no host configured.'
-					: 'No gateway host configured.',
+				error: useMdns ? 'No gateway found via mDNS and no host configured.' : 'No gateway host configured.',
 			};
 		}
 
@@ -458,7 +417,7 @@ class Mx400Adapter extends utils.Adapter {
 				}
 				token = await this.requestToken(auth, login, password);
 			}
-			api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+			api.defaults.headers.common.Authorization = `Bearer ${token}`;
 			await api.get('/gateway/versionFirmware');
 			status = 200;
 		} catch (error: any) {
@@ -469,7 +428,9 @@ class Mx400Adapter extends utils.Adapter {
 				};
 			}
 			if (httpStatus === 401 || httpStatus === 403) {
-				return { error: `Authentication failed (HTTP ${httpStatus}). Check login/password or the access token.` };
+				return {
+					error: `Authentication failed (HTTP ${httpStatus}). Check login/password or the access token.`,
+				};
 			}
 			if (!httpStatus) {
 				const code = error?.code ? `${error.code}: ` : '';
@@ -481,9 +442,7 @@ class Mx400Adapter extends utils.Adapter {
 
 		const response: Record<string, any> = {
 			result:
-				status === 200
-					? `Connection successful (${host}).`
-					: `Gateway ${host} is reachable (HTTP ${status}).`,
+				status === 200 ? `Connection successful (${host}).` : `Gateway ${host} is reachable (HTTP ${status}).`,
 		};
 		if (discovered && discovered.host !== configuredHost) {
 			// Let the button write the discovered address into the host field.
@@ -493,17 +452,6 @@ class Mx400Adapter extends utils.Adapter {
 		return response;
 	}
 
-	/** Normalize a boolean that may arrive as a string from the admin UI. */
-	private static toBool(value: unknown, fallback: boolean): boolean {
-		if (value === undefined || value === null || value === '') {
-			return fallback;
-		}
-		if (typeof value === 'boolean') {
-			return value;
-		}
-		return String(value).toLowerCase() !== 'false';
-	}
-
 	private createApiClient(host: string, port: number, rejectUnauthorized: boolean, token?: string): AxiosInstance {
 		const client = axios.create({
 			baseURL: `https://${host}:${port}`,
@@ -511,7 +459,7 @@ class Mx400Adapter extends utils.Adapter {
 			timeout: this.requestTimeout(),
 		});
 		if (token) {
-			client.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+			client.defaults.headers.common.Authorization = `Bearer ${token}`;
 		}
 		return client;
 	}
@@ -538,7 +486,9 @@ class Mx400Adapter extends utils.Adapter {
 			this.log.info('Authentication successful');
 		} catch (error: any) {
 			if (error.response?.status === 412) {
-				this.log.error('Physical proximity not proven. Press WLAN and Wireless buttons simultaneously for 1 second, then retry within 5 minutes.');
+				this.log.error(
+					'Physical proximity not proven. Press WLAN and Wireless buttons simultaneously for 1 second, then retry within 5 minutes.',
+				);
 			} else {
 				this.log.error(`Authentication failed: ${error.message}`);
 			}
@@ -577,9 +527,7 @@ class Mx400Adapter extends utils.Adapter {
 
 	/** Static identity resources - polled once at startup. Returns whether the gateway was reachable. */
 	private async pollStatics(): Promise<boolean> {
-		const results = await Promise.allSettled(
-			this.staticResources.map(r => this.fetchAndSet(r.path, r.stateId)),
-		);
+		const results = await Promise.allSettled(this.staticResources.map(r => this.fetchAndSet(r.path, r.stateId)));
 
 		const transportFailures = this.logPollFailures(
 			'Static',
@@ -592,12 +540,12 @@ class Mx400Adapter extends utils.Adapter {
 	/**
 	 * Log one error line per failing endpoint, then return the number of
 	 * transport-level failures (gateway unreachable).
+	 *
+	 * @param tier The poll tier name used in the log prefix
+	 * @param results The settled results of the polled endpoints
+	 * @param paths The endpoint paths matching the results
 	 */
-	private logPollFailures(
-		tier: string,
-		results: PromiseSettledResult<FetchResult>[],
-		paths: string[],
-	): number {
+	private logPollFailures(tier: string, results: PromiseSettledResult<FetchResult>[], paths: string[]): number {
 		let transportFailures = 0;
 		for (let i = 0; i < results.length; i++) {
 			const result = results[i];
@@ -621,28 +569,16 @@ class Mx400Adapter extends utils.Adapter {
 		return transportFailures;
 	}
 
-	/** "<tier> poll failed with <code>: <path> returns <message>" */
-	private logFailure(
-		tier: string,
-		path: string,
-		result: Exclude<FetchResult, { outcome: 'ok' }>,
-	): void {
+	/**
+	 * "<tier> poll failed with <code>: <path> returns <message>"
+	 *
+	 * @param tier The poll tier name used in the log prefix
+	 * @param path The endpoint path that failed
+	 * @param result The failed fetch result
+	 */
+	private logFailure(tier: string, path: string, result: Exclude<FetchResult, { outcome: 'ok' }>): void {
 		const code = result.outcome === 'http' ? result.status : result.code;
 		this.log.error(`${tier} poll failed with ${code}: ${path} returns ${result.message}`);
-	}
-
-	/** Best-effort HTTP error description from the gateway response body or the status text. */
-	private describeHttpError(error: any): { status: number; message: string } {
-		const status = error?.response?.status;
-		return {
-			status,
-			message:
-				error?.response?.data?.message ||
-				error?.response?.data?.error ||
-				error?.response?.statusText ||
-				STATUS_CODES[status] ||
-				`HTTP ${status}`,
-		};
 	}
 
 	private async poll(): Promise<void> {
@@ -701,7 +637,7 @@ class Mx400Adapter extends utils.Adapter {
 			const status = error?.response?.status;
 			if (status) {
 				this.log.debug(`Failed to fetch /notifications: HTTP ${status}`);
-				return { outcome: 'http', ...this.describeHttpError(error) };
+				return { outcome: 'http', ...describeHttpError(error) };
 			}
 			this.log.debug(`Failed to fetch /notifications: ${error?.message || error}`);
 			return {
@@ -722,14 +658,16 @@ class Mx400Adapter extends utils.Adapter {
 		// against the gateway under explicit control - use ".*" to read all.
 		const rawFilter = String((this.config as any).signalsFilter || '').trim();
 		if (!rawFilter) {
-			this.log.debug('Signals filter is empty; no signals will be polled. Set a filter (e.g. ".*") to read signals.');
+			this.log.debug(
+				'Signals filter is empty; no signals will be polled. Set a filter (e.g. ".*") to read signals.',
+			);
 			return;
 		}
 
 		let filter: RegExp;
 		try {
 			filter = new RegExp(rawFilter);
-		} catch (error) {
+		} catch {
 			this.log.warn(`Invalid signalsFilter regular expression ignored: ${rawFilter}`);
 			return;
 		}
@@ -752,9 +690,7 @@ class Mx400Adapter extends utils.Adapter {
 				return;
 			}
 
-			const tasks = signalIds.map((id: string) =>
-				this.fetchAndSet(id, `signals.${this.sanitizeSignalId(id)}`),
-			);
+			const tasks = signalIds.map((id: string) => this.fetchAndSet(id, `signals.${sanitizeSignalId(id)}`));
 			const results = await this.allSettledLimited(tasks, 3);
 
 			const transportFailures = this.logPollFailures('Signal', results, signalIds);
@@ -764,7 +700,7 @@ class Mx400Adapter extends utils.Adapter {
 		} catch (error: any) {
 			const status = error?.response?.status;
 			if (status) {
-				const { message } = this.describeHttpError(error);
+				const { message } = describeHttpError(error);
 				this.log.error(`Signal poll failed with ${status}: /signals returns ${message}`);
 			} else {
 				this.log.error(
@@ -781,11 +717,6 @@ class Mx400Adapter extends utils.Adapter {
 		return raw !== false && raw !== 'false';
 	}
 
-	private formatLocalDate(date: Date): string {
-		const pad = (n: number): string => String(n).padStart(2, '0');
-		return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-	}
-
 	/**
 	 * Energy monitoring: cumulative totals from /heatSources/emon/totalConsumption
 	 * ("overall") plus today/month values derived from the recordings API.
@@ -798,8 +729,8 @@ class Mx400Adapter extends utils.Adapter {
 	 */
 	private async pollEnergy(): Promise<void> {
 		const now = new Date();
-		const today = this.formatLocalDate(now);
-		const monthStart = this.formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
+		const today = formatLocalDate(now);
+		const monthStart = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
 		const query = `?sampleRate=all&startDate=${monthStart}&endDate=${today}`;
 		const base = '/recordings/heatSources/emon';
 
@@ -826,7 +757,7 @@ class Mx400Adapter extends utils.Adapter {
 		await this.setEnergyState(
 			'energy.created.overall.environment',
 			'Heat from environment (overall)',
-			this.energyDifference(map.outputProduced, map.compressor, map.eheater),
+			energyDifference(map.outputProduced, map.compressor, map.eheater),
 		);
 
 		// Today / this month values
@@ -844,12 +775,12 @@ class Mx400Adapter extends utils.Adapter {
 		await this.setEnergyState(
 			'energy.created.today.environment',
 			'Heat from environment (today)',
-			this.energyDifference(out.today, c.today, e.today),
+			energyDifference(out.today, c.today, e.today),
 		);
 		await this.setEnergyState(
 			'energy.created.month.environment',
 			'Heat from environment (this month)',
-			this.energyDifference(out.month, c.month, e.month),
+			energyDifference(out.month, c.month, e.month),
 		);
 	}
 
@@ -858,7 +789,7 @@ class Mx400Adapter extends utils.Adapter {
 		const path = '/heatSources/emon/totalConsumption';
 		try {
 			const response = await this.httpApi.get(path);
-			const map = this.parseEmonValues(response.data);
+			const map = parseEmonValues(response.data);
 			this.log.debug(`Polled ${path} -> ${JSON.stringify(map)}`);
 			return { path, result: { outcome: 'ok' }, map };
 		} catch (error: any) {
@@ -870,60 +801,20 @@ class Mx400Adapter extends utils.Adapter {
 	 * Read a cumulative recording (full resource path, e.g.
 	 * /recordings/heatSources/emon/total/compressor) and derive "today" (last
 	 * daily point) and "this month" (monthly point) values.
+	 *
+	 * @param resourcePath The recording resource path
+	 * @param query The query string appended to the resource path
 	 */
 	private async loadEnergyRecording(resourcePath: string, query: string): Promise<EnergyRecordingResponse> {
 		const path = `${resourcePath}${query}`;
 		try {
 			const response = await this.httpApi.get(path);
-			const periods = this.extractRecordingPeriods(response.data);
+			const periods = extractRecordingPeriods(response.data);
 			this.log.debug(`Polled ${path} -> today=${periods.today}, month=${periods.month}`);
 			return { path, result: { outcome: 'ok' }, periods };
 		} catch (error: any) {
 			return { path, result: this.fetchError(path, error) };
 		}
-	}
-
-	/** produced - consumed parts, guarded against missing values and float noise. */
-	private energyDifference(total: unknown, ...parts: unknown[]): number | undefined {
-		if (typeof total !== 'number' || parts.some(part => typeof part !== 'number')) {
-			return undefined;
-		}
-		const sum = (parts as number[]).reduce((acc, part) => acc + part, 0);
-		return Math.round((total - sum) * 1000) / 1000;
-	}
-
-	/** Last daily ('P1D') and monthly ('P1M') yield values from a recording response. */
-	private extractRecordingPeriods(data: any): { today?: number; month?: number } {
-		const groups: any[] = Array.isArray(data?.values) ? data.values : [];
-
-		const lastYield = (sampleRate: string): number | undefined => {
-			const group = groups.find(g => g?.sampleRate === sampleRate);
-			const points = Array.isArray(group?.recording) ? group.recording : [];
-			if (!points.length) {
-				return undefined;
-			}
-			const last = points[points.length - 1];
-			return typeof last?.y === 'number' ? last.y : undefined;
-		};
-
-		return { today: lastYield('P1D'), month: lastYield('P1M') };
-	}
-
-	/** Merge the emonValue "values" array (one single-key object per component). */
-	private parseEmonValues(data: any): Record<string, number> {
-		const map: Record<string, number> = {};
-		if (Array.isArray(data?.values)) {
-			for (const entry of data.values) {
-				if (entry && typeof entry === 'object') {
-					for (const [key, value] of Object.entries(entry)) {
-						if (typeof value === 'number') {
-							map[key] = value;
-						}
-					}
-				}
-			}
-		}
-		return map;
 	}
 
 	private async setEnergyState(stateId: string, name: string, value: unknown): Promise<void> {
@@ -942,12 +833,17 @@ class Mx400Adapter extends utils.Adapter {
 		await this.setStateAsync(stateId, value, true);
 	}
 
-	/** Shared error mapping for the energy fetches. */
+	/**
+	 * Shared error mapping for the energy fetches.
+	 *
+	 * @param path The endpoint path that failed
+	 * @param error The error thrown by the HTTP request
+	 */
 	private fetchError(path: string, error: any): FetchResult {
 		const status = error?.response?.status;
 		if (status) {
 			this.log.debug(`Failed to fetch ${path}: HTTP ${status}`);
-			return { outcome: 'http', ...this.describeHttpError(error) };
+			return { outcome: 'http', ...describeHttpError(error) };
 		}
 		this.log.debug(`Failed to fetch ${path}: ${error?.message || error}`);
 		return {
@@ -955,10 +851,6 @@ class Mx400Adapter extends utils.Adapter {
 			code: error?.code || 'ERR',
 			message: error?.message || String(error),
 		};
-	}
-
-	private sanitizeSignalId(path: string): string {
-		return path.replace(/^\/signals\//, '').replace(/[^A-Za-z0-9_]/g, '_');
 	}
 
 	private requestTimeout(): number {
@@ -969,6 +861,9 @@ class Mx400Adapter extends utils.Adapter {
 	/**
 	 * Resolve promises with a maximum number of concurrent tasks. Keeps the
 	 * request burst against the gateway bounded when many signals are present.
+	 *
+	 * @param tasks The promises to settle
+	 * @param limit The maximum number of concurrently running promises
 	 */
 	private async allSettledLimited<T>(tasks: Promise<T>[], limit: number): Promise<PromiseSettledResult<T>[]> {
 		const results: PromiseSettledResult<T>[] = new Array(tasks.length);
@@ -1000,8 +895,8 @@ class Mx400Adapter extends utils.Adapter {
 
 				await this.ensureObject(stateId, {
 					name: this.stateNameFor(path, stateId),
-					type: this.getTypeForValue(data.value),
-					role: this.getRoleForPath(path, unit, data.value),
+					type: getTypeForValue(data.value),
+					role: getRoleForPath(path, unit, data.value),
 					read: true,
 					write: false,
 					unit,
@@ -1021,7 +916,7 @@ class Mx400Adapter extends utils.Adapter {
 				// Detail stays at debug level - one error line per failing
 				// endpoint is logged by the pollers.
 				this.log.debug(`Failed to fetch ${path}: HTTP ${status}`);
-				return { outcome: 'http', ...this.describeHttpError(error) };
+				return { outcome: 'http', ...describeHttpError(error) };
 			}
 
 			// Transport-level failure: wrong certificate, host unreachable,
@@ -1054,34 +949,6 @@ class Mx400Adapter extends utils.Adapter {
 		return stateId;
 	}
 
-	private getTypeForValue(value: any): ioBroker.CommonType {
-		if (typeof value === 'boolean') return 'boolean';
-		if (typeof value === 'number') return 'number';
-		if (typeof value === 'string') return 'string';
-		return 'mixed';
-	}
-
-	private getRoleForPath(path: string, unit: string | undefined, value: unknown): string {
-		// Prefer the unit of measure when available, it is the most reliable hint
-		if (unit === 'C') return 'value.temperature';
-		if (unit === 'W' || unit === 'kW') return 'value.power';
-		if (unit === 'kWh') return 'value.energy';
-		if (unit === '%') return 'value';
-
-		if (/humidity/i.test(path)) return 'value.humidity';
-		if (/temperature|temp/i.test(path)) return 'value.temperature';
-		if (/power/i.test(path)) return 'value.power';
-		if (/modulation/i.test(path)) return 'value';
-		if (/energy|consumption/i.test(path)) return 'value.energy';
-		if (/brand|firmware|hardware|version|name|type/i.test(path)) return 'text';
-
-		if (typeof value === 'boolean') return 'indicator';
-		if (/status|state|active|flame|detection|connected/i.test(path)) {
-			return typeof value === 'string' ? 'text' : 'indicator';
-		}
-		return 'value';
-	}
-
 	private stopTimers(): void {
 		if (this.pollTimer) {
 			clearInterval(this.pollTimer);
@@ -1099,7 +966,7 @@ class Mx400Adapter extends utils.Adapter {
 
 	private onUnload(callback: () => void): void {
 		this.stopTimers();
-		this.setStateAsync('info.connection', false, true);
+		void this.setStateAsync('info.connection', false, true);
 		callback();
 	}
 }
